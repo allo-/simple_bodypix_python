@@ -50,11 +50,14 @@ replacement_bg = None
 replacement_bg_mtime = 0
 
 def load_replacement_bg(replacement_bg):
-    if os.stat("background.jpg").st_mtime != replacement_bg_mtime:
-        replacement_bg_raw = cv2.imread("background.jpg")
-        replacement_bg = cv2.resize(replacement_bg_raw, (width, height))
-        replacement_bg = replacement_bg[...,::-1]
-    return replacement_bg
+    try:
+        if os.stat("background.jpg").st_mtime != replacement_bg_mtime:
+            replacement_bg_raw = cv2.imread("background.jpg")
+            replacement_bg = cv2.resize(replacement_bg_raw, (width, height))
+            replacement_bg = replacement_bg[...,::-1]
+        return replacement_bg
+    except OSError:
+        return None
 
 sess = tf.compat.v1.Session(graph=graph)
 input_tensor_names = tfjs.util.get_input_tensors(graph)
@@ -82,6 +85,9 @@ while True:
     replacement_bg = load_replacement_bg(replacement_bg)
 
     frame = frame[...,::-1]
+    if replacement_bg is None:
+        fakewebcam.schedule_frame(frame)
+        continue
 
     img = Image.fromarray(frame)
     imgWidth, imgHeight = img.size
