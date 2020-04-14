@@ -8,6 +8,7 @@ import math
 import matplotlib.patches as patches
 import numpy as np
 import os
+import yaml
 import pyfakewebcam
 
 gpu_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -36,10 +37,6 @@ internalResolution = 0.5
 modelPath = 'bodypix_mobilenet_float_{0:03d}_model-stride{1}'.format(
     int(100*internalResolution), OutputStride)
 
-segmentation_threshold = 0.7
-dilate_value = 0
-blur_radius = 30
-
 #tf.debugging.set_log_device_placement(True)
 
 print("Loading model...")
@@ -48,16 +45,37 @@ print("done.")
 
 replacement_bg = None
 replacement_bg_mtime = 0
+config_mtime = 0
+config = {
+    "erode": 0,
+    "blur": 0,
+    "segmentation_threshold": 0.7
+}
 
 def load_replacement_bg(replacement_bg):
+    global replacement_bg_mtime
     try:
         if os.stat("background.jpg").st_mtime != replacement_bg_mtime:
             replacement_bg_raw = cv2.imread("background.jpg")
             replacement_bg = cv2.resize(replacement_bg_raw, (width, height))
             replacement_bg = replacement_bg[...,::-1]
+            replacement_bg_mtime = os.stat("background.jpg").st_mtime
         return replacement_bg
     except OSError:
         return None
+
+def load_config():
+    global config_mtime, config
+    try:
+        if os.stat("config.yaml").st_mtime != config_mtime:
+            config_mtime = os.stat("config.yaml").st_mtime
+            with open("config.yaml", "r") as configfile:
+                yconfig = yaml.load(configfile, Loader=yaml.SafeLoader)
+                for key in yconfig:
+                    config[key] = yconfig[key]
+    except OSError:
+        pass
+    return config
 
 sess = tf.compat.v1.Session(graph=graph)
 input_tensor_names = tfjs.util.get_input_tensors(graph)
@@ -82,6 +100,7 @@ while True:
         print("Error getting a webcam image!")
         sys.exit(1)
 
+    config = load_config()
     replacement_bg = load_replacement_bg(replacement_bg)
 
     frame = frame[...,::-1]
@@ -121,7 +140,7 @@ while True:
     #segmentScores = segments
     #print(segmentScores[0,0], segmentScores.min(), segmentScores.max())
     #print(segmentScores[0,0])
-    mask = tf.math.greater(segmentScores, tf.constant(segmentation_threshold))
+    mask = tf.math.greater(segmentScores, tf.constant(config["segmentation_threshold"]))
     #print(mask.shape)
     segmentationMask = tf.dtypes.cast(mask, tf.int32)
     segmentationMask = np.reshape(
@@ -134,8 +153,10 @@ while True:
     mask_img = tf.keras.preprocessing.image.img_to_array(
         mask_img, dtype=np.uint8)
 
-    mask_img = cv2.dilate(mask_img, np.ones((dilate_value, dilate_value), np.uint8), iterations=1)
-    mask_img = cv2.blur(mask_img, (blur_radius, blur_radius))
+    if config["erode"]:
+        mask_img = cv2.erode(mask_img, np.ones((config["erode"], config["erode"]), np.uint8), iterations=1)
+    if config["blur"]:
+        mask_img = cv2.blur(mask_img, (config["blur"], config["blur"]))
     segmentationMask_inv = np.bitwise_not(mask_img)
 
     #frame = frame[...,::-1] # convert frame back to BGR
@@ -145,7 +166,7 @@ while True:
         frame[:,:,c] = frame[:,:,c] * (mask_img[:,:,0] / 255.) + \
             replacement_bg[:,:,c] * (1.0-(mask_img[:,:,0] / 255.))
 
-    #frame = np.array(segmentationMask_inv[:,:,:])
+    #frame = np.array(mask_img[:,:,:])
     fakewebcam.schedule_frame(frame)
 
 sys.exit(0)
