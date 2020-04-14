@@ -1,3 +1,5 @@
 segmentation_threshold: 0.7
 blur: 5
-dilate: 30
+erode: 30
+blur_background: 0
+image_name: "background.jpg"

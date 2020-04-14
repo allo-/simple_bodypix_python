@@ -49,17 +49,23 @@ config_mtime = 0
 config = {
     "erode": 0,
     "blur": 0,
-    "segmentation_threshold": 0.7
+    "segmentation_threshold": 0.7,
+    "blur_background": 0,
+    "image_name": "background.jpg"
 }
 
-def load_replacement_bg(replacement_bg):
+def load_replacement_bg(replacement_bg, image_name="background.jpg", blur_background_value=0):
     global replacement_bg_mtime
     try:
-        if os.stat("background.jpg").st_mtime != replacement_bg_mtime:
-            replacement_bg_raw = cv2.imread("background.jpg")
+        if os.stat(image_name).st_mtime != replacement_bg_mtime:
+            replacement_bg_raw = cv2.imread(image_name)
             replacement_bg = cv2.resize(replacement_bg_raw, (width, height))
             replacement_bg = replacement_bg[...,::-1]
-            replacement_bg_mtime = os.stat("background.jpg").st_mtime
+            replacement_bg_mtime = os.stat(image_name).st_mtime
+
+            if blur_background_value:
+                replacement_bg = cv2.blur(replacement_bg,
+                    (blur_background_value, blur_background_value))
         return replacement_bg
     except OSError:
         return None
@@ -73,6 +79,8 @@ def load_config():
                 yconfig = yaml.load(configfile, Loader=yaml.SafeLoader)
                 for key in yconfig:
                     config[key] = yconfig[key]
+            # Force image reload
+            replacement_bg_mtime = 0
     except OSError:
         pass
     return config
@@ -101,12 +109,19 @@ while True:
         sys.exit(1)
 
     config = load_config()
-    replacement_bg = load_replacement_bg(replacement_bg)
+    blur_background_value = config.get("blur_background", 0)
+    image_name = config.get("image_name", "background.jpg")
+    replacement_bg = load_replacement_bg(replacement_bg, image_name, blur_background_value)
 
     frame = frame[...,::-1]
     if replacement_bg is None:
-        fakewebcam.schedule_frame(frame)
-        continue
+        if not blur_background_value:
+            fakewebcam.schedule_frame(frame)
+            continue
+        elif blur_background_value:
+            replacement_bg = frame
+            replacement_bg = cv2.blur(replacement_bg,
+                (blur_background_value, blur_background_value))
 
     img = Image.fromarray(frame)
     imgWidth, imgHeight = img.size
