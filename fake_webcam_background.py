@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
+import tensorflow as tf
 import cv2
 import sys
 from PIL import Image
 import tfjs_graph_converter as tfjs
-import tensorflow as tf
 import math
 import matplotlib.patches as patches
 import numpy as np
 import os
 import pyfakewebcam
 
+gpu_devices = tf.config.experimental.list_physical_devices('GPU')
+for device in gpu_devices:
+    tf.config.experimental.set_memory_growth(device, True)
+
 # make tensorflow stop spamming messages
 #os.environ['TF_CPP_MIN_LOG_LEVEL'] = "3"
+tf.get_logger().setLevel("DEBUG")
 
 cap = cv2.VideoCapture('/dev/video0')
 
