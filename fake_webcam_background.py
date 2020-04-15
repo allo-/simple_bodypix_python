@@ -4,15 +4,16 @@ import cv2
 import sys
 from PIL import Image
 import tfjs_graph_converter as tfjs
-import math
-import matplotlib.patches as patches
 import numpy as np
 import os
+import stat
+import glob
 import yaml
 import pyfakewebcam
 
-replacement_bg = None
-replacement_bg_mtime = 0
+replacement_bgs = None
+replacement_bgs_idx = 0
+replacement_bgs_mtime = 0
 config_mtime = 0
 config = {
     "erode": 0,
@@ -27,7 +28,7 @@ config = {
 masks = []
 
 def load_config():
-    global config_mtime, config, replacement_bg_mtime
+    global config_mtime, config, replacement_bgs_mtime
     try:
         if os.stat("config.yaml").st_mtime != config_mtime:
             config_mtime = os.stat("config.yaml").st_mtime
@@ -36,7 +37,7 @@ def load_config():
                 for key in yconfig:
                     config[key] = yconfig[key]
             # Force image reload
-            replacement_bg_mtime = 0
+            replacement_bgs_mtime = 0
     except OSError:
         pass
     return config
@@ -75,19 +76,36 @@ print("Loading model...")
 graph = tfjs.api.load_graph_model(modelPath)  # downloaded from the link above
 print("done.")
 
-def load_replacement_bg(replacement_bg, image_name="background.jpg", blur_background_value=0):
-    global replacement_bg_mtime
+def load_replacement_bgs(replacement_bgs, image_name="background.jpg", blur_background_value=0):
+    global replacement_bgs_mtime, replacement_bgs_idx
     try:
-        if os.stat(image_name).st_mtime != replacement_bg_mtime:
-            replacement_bg_raw = cv2.imread(image_name)
-            replacement_bg = cv2.resize(replacement_bg_raw, (width, height))
-            replacement_bg = replacement_bg[...,::-1]
-            replacement_bg_mtime = os.stat(image_name).st_mtime
+        replacement_stat = os.stat(image_name)
+        if replacement_stat.st_mtime != replacement_bgs_mtime:
+            print("Loading background {0} ...".format(image_name))
+            replacement_bgs_idx = 0
+            filenames = [image_name]
+            if stat.S_ISDIR(replacement_stat.st_mode):
+                filenames = glob.glob(filenames[0] + "/*.*")
+                if not filenames:
+                    return None
+
+            replacement_bgs = []
+            for filename in filenames:
+                replacement_bg_raw = cv2.imread(filename)
+                replacement_bg = cv2.resize(replacement_bg_raw, (width, height))
+                replacement_bg = replacement_bg[...,::-1]
+                replacement_bgs.append(replacement_bg)
+
+            replacement_bgs_mtime = os.stat(image_name).st_mtime
 
             if blur_background_value:
-                replacement_bg = cv2.blur(replacement_bg,
-                    (blur_background_value, blur_background_value))
-        return replacement_bg
+                for i in range(len(replacement_bgs)):
+                    replacement_bgs[i] = cv2.blur(replacement_bgs[i],
+                        (blur_background_value, blur_background_value))
+            print("Finished loading background")
+
+        return replacement_bgs
+
     except OSError:
         return None
 
@@ -159,16 +177,16 @@ while True:
     config = load_config()
     blur_background_value = config.get("blur_background", 0)
     image_name = config.get("image_name", "background.jpg")
-    replacement_bg = load_replacement_bg(replacement_bg, image_name, blur_background_value)
+    replacement_bgs = load_replacement_bgs(replacement_bgs, image_name, blur_background_value)
 
     frame = frame[...,::-1]
-    if replacement_bg is None:
+    if replacement_bgs is None:
         if not blur_background_value:
             fakewebcam.schedule_frame(frame)
             continue
         elif blur_background_value:
-            replacement_bg = frame
-            replacement_bg = cv2.blur(replacement_bg,
+            replacement_bgs = frame
+            replacement_bgs = cv2.blur(replacement_bgs,
                 (blur_background_value, blur_background_value))
 
     img = Image.fromarray(frame)
@@ -242,7 +260,9 @@ while True:
 
     for c in range(3):
         frame[:,:,c] = frame[:,:,c] * (mask_img[:,:,0] / 255.) + \
-            replacement_bg[:,:,c] * (1.0-(mask_img[:,:,0] / 255.))
+            replacement_bgs[replacement_bgs_idx][:,:,c] * (1.0-(mask_img[:,:,0] / 255.))
+
+    replacement_bgs_idx = (replacement_bgs_idx + 1) % len(replacement_bgs)
 
     if config.get("debug_show_mask", False):
         frame = np.array(mask_img[:,:,:])
