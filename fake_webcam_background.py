@@ -21,8 +21,10 @@ config = {
     "blur_background": 0,
     "image_name": "background.jpg",
     "virtual_video_device": "/dev/video2",
-    "real_video_device": "/dev/video0"
+    "real_video_device": "/dev/video0",
+    "average_masks": 3
 }
+masks = []
 
 def load_config():
     global config_mtime, config, replacement_bg_mtime
@@ -212,6 +214,11 @@ while True:
     segmentationMask = tf.dtypes.cast(mask, tf.int32)
     segmentationMask = np.reshape(
         segmentationMask, (segmentationMask.shape[0], segmentationMask.shape[1]))
+
+    masks.insert(0, segmentationMask)
+    num_average_masks = max(1, config.get("average_masks", 3))
+    masks = masks[:num_average_masks]
+    segmentationMask = np.mean(masks, axis=0)
 
     mask_img = Image.fromarray(segmentationMask * 255).convert("RGB")
     #DEBUG
