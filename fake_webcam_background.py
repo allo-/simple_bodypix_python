@@ -49,7 +49,7 @@ config_mtime = 0
 config = {
     "erode": 0,
     "blur": 0,
-    "segmentation_threshold": 0.7,
+    "segmentation_threshold": 0.75,
     "blur_background": 0,
     "image_name": "background.jpg"
 }
@@ -90,6 +90,45 @@ input_tensor_names = tfjs.util.get_input_tensors(graph)
 output_tensor_names = tfjs.util.get_output_tensors(graph)
 input_tensor = graph.get_tensor_by_name(input_tensor_names[0])
 
+def calc_padding(inputTensor, targetH, targetW):
+    height, width = inputTensor.shape[:2]
+    targetAspect = targetW / targetH;
+    aspect = width / height;
+    padT, padB, padL, padR = 0, 0, 0, 0;
+    if aspect < targetAspect:
+        padT = 0
+        padB = 0
+        padL = round(0.5 * (targetAspect * height - width))
+        padR = round(0.5 * (targetAspect * height - width))
+    else:
+        padT = round(0.5 * ((1.0 / targetAspect) * width - height))
+        padB = round(0.5 * ((1.0 / targetAspect) * width - height))
+        padL = 0
+        padR = 0
+    return padT, padB, padL, padR
+
+def removePaddingAndResizeBack(resizedAndPadded, originalHeight, originalWidth,
+        padT, padB, padL, padR):
+    return tf.squeeze(tf.image.crop_and_resize(resizedAndPadded, 
+        [[padT / (originalHeight + padT + padB - 1.0),
+        padL / (originalWidth + padL + padR - 1.0),
+        (padT + originalHeight - 1.0) / (originalHeight + padT + padB - 1.0),
+        (padL + originalWidth - 1.0) / (originalWidth + padL + padR - 1.0)]],
+        [0], [originalHeight, originalWidth]
+    ), [0])
+
+def scaleAndCropToInputTensorShape(tensor, inputTensorHeight, inputTensorWidth,
+        resizedAndPaddedHeight, resizedAndPaddedWidth, padT, padB, padL, padR,
+        applySigmoidActivation):
+    inResizedAndPadded = tf.image.resize_with_pad(tensor,
+        inputTensorHeight, inputTensorWidth,
+        method=tf.image.ResizeMethod.BILINEAR)
+    if applySigmoidActivation:
+        inResizedAndPadded = tf.sigmoid(inResizedAndPadded)
+
+    return removePaddingAndResizeBack(inResizedAndPadded,
+        inputTensorHeight, inputTensorWidth, padT, padB, padL, padR)
+
 def isValidInputResolution(resolution, outputStride):
     return (resolution - 1) % outputStride == 0;
 
@@ -101,6 +140,9 @@ def toValidInputResolution(inputResolution, outputStride):
 def toInputResolutionHeightAndWidth(internalResolution, outputStride, inputHeight, inputWidth):
     return (toValidInputResolution(inputHeight * internalResolution, outputStride),
             toValidInputResolution(inputWidth * internalResolution, outputStride))
+
+def toMaskTensor(segmentScores, threshold):
+    return tf.math.greater(scaledSegmentScores, tf.constant(threshold))
 
 while True:
     success, frame = cap.read()
@@ -126,22 +168,28 @@ while True:
     img = Image.fromarray(frame)
     imgWidth, imgHeight = img.size
 
-    #targetWidth = (int(imgWidth) // OutputStride) * OutputStride + 1
-    #targetHeight = (int(imgHeight) // OutputStride) * OutputStride + 1
+    targetHeight, targetWidth = toInputResolutionHeightAndWidth(
+        internalResolution, OutputStride, imgHeight, imgWidth)
 
-    targetWidth, targetHeight = toInputResolutionHeightAndWidth(
-        internalResolution, OutputStride, imgWidth, imgHeight)
 
-    img = img.resize((targetWidth, targetHeight))
     x = tf.keras.preprocessing.image.img_to_array(img, dtype=np.float32)
+    padT, padB, padL, padR = calc_padding(x, targetHeight, targetWidth)
+    x = tf.image.resize_with_pad(x, targetHeight, targetWidth,
+            method=tf.image.ResizeMethod.BILINEAR)
+
+    resizedHeight, resizedWidth = x.shape[:2]
+
     InputImageShape = x.shape
 
     widthResolution = int((InputImageShape[1] - 1) / OutputStride) + 1
     heightResolution = int((InputImageShape[0] - 1) / OutputStride) + 1
 
+    # for resnet
     # add imagenet mean - extracted from body-pix source
-    m = np.array([-123.15, -115.90, -103.06])
-    x = np.add(x, m)
+    #m = np.array([-123.15, -115.90, -103.06])
+    #x = np.add(x, m)
+
+    # for mobilenet
     x = np.divide(x, 127.5)
     x = np.subtract(x, 1.0)
     sample_image = x[tf.newaxis, ...]
@@ -150,40 +198,43 @@ while True:
                        input_tensor: sample_image})
     segments = np.squeeze(results[1], 0)
 
-    # Segmentation MASK
-    segmentScores = tf.sigmoid(segments)
-    #segmentScores = segments
-    #print(segmentScores[0,0], segmentScores.min(), segmentScores.max())
-    #print(segmentScores[0,0])
-    mask = tf.math.greater(segmentScores, tf.constant(config["segmentation_threshold"]))
-    #print(mask.shape)
+    segmentLogits = results[1]
+    scaledSegmentScores = scaleAndCropToInputTensorShape(
+        segmentLogits, imgHeight, imgWidth, resizedHeight, resizedWidth,
+        padT, padB, padL, padR, True
+    )
+
+    mask = toMaskTensor(scaledSegmentScores, config["segmentation_threshold"])
     segmentationMask = tf.dtypes.cast(mask, tf.int32)
     segmentationMask = np.reshape(
         segmentationMask, (segmentationMask.shape[0], segmentationMask.shape[1]))
 
-    # Draw Segmented Output
-    mask_img = Image.fromarray(segmentationMask * 255)
-    mask_img = mask_img.resize(
-        (width, height), Image.LANCZOS).convert("RGB")
+    mask_img = Image.fromarray(segmentationMask * 255).convert("RGB")
+    #DEBUG
+    #mask_img = tf.keras.preprocessing.image.img_to_array(
+    #    mask_img, dtype=np.uint8)
+    #frame = np.array(mask_img[:,:,:])
+    #fakewebcam.schedule_frame(frame)
+    #cv2.imwrite("output.jpg", frame)
+    #break
+
     mask_img = tf.keras.preprocessing.image.img_to_array(
         mask_img, dtype=np.uint8)
 
+    if config["dilate"]:
+        mask_img = cv2.dilate(mask_img, np.ones((config["dilate"], config["dilate"]), np.uint8), iterations=1)
     if config["erode"]:
         mask_img = cv2.erode(mask_img, np.ones((config["erode"], config["erode"]), np.uint8), iterations=1)
-    if config["dilate"]:
-        mask_img = cv2.dilate(mask_img, np.ones((config["erode"], config["erode"]), np.uint8), iterations=1)
     if config["blur"]:
         mask_img = cv2.blur(mask_img, (config["blur"], config["blur"]))
     segmentationMask_inv = np.bitwise_not(mask_img)
 
-    #frame = frame[...,::-1] # convert frame back to BGR
-    #frame = np.bitwise_and(frame, mask_img[:,:,:]) + \
-    #        np.bitwise_and(replacement_bg, segmentationMask_inv[:,:,:])
     for c in range(3):
         frame[:,:,c] = frame[:,:,c] * (mask_img[:,:,0] / 255.) + \
             replacement_bg[:,:,c] * (1.0-(mask_img[:,:,0] / 255.))
 
-    #frame = np.array(mask_img[:,:,:])
+    if config.get("debug_show_mask", False):
+        frame = np.array(mask_img[:,:,:])
     fakewebcam.schedule_frame(frame)
 
 sys.exit(0)
