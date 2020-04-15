@@ -11,6 +11,36 @@ import os
 import yaml
 import pyfakewebcam
 
+replacement_bg = None
+replacement_bg_mtime = 0
+config_mtime = 0
+config = {
+    "erode": 0,
+    "blur": 0,
+    "segmentation_threshold": 0.75,
+    "blur_background": 0,
+    "image_name": "background.jpg",
+    "virtual_video_device": "/dev/video2",
+    "real_video_device": "/dev/video0"
+}
+
+def load_config():
+    global config_mtime, config, replacement_bg_mtime
+    try:
+        if os.stat("config.yaml").st_mtime != config_mtime:
+            config_mtime = os.stat("config.yaml").st_mtime
+            with open("config.yaml", "r") as configfile:
+                yconfig = yaml.load(configfile, Loader=yaml.SafeLoader)
+                for key in yconfig:
+                    config[key] = yconfig[key]
+            # Force image reload
+            replacement_bg_mtime = 0
+    except OSError:
+        pass
+    return config
+
+load_config()
+
 gpu_devices = tf.config.experimental.list_physical_devices('GPU')
 for device in gpu_devices:
     tf.config.experimental.set_memory_growth(device, True)
@@ -19,7 +49,7 @@ for device in gpu_devices:
 #os.environ['TF_CPP_MIN_LOG_LEVEL'] = "3"
 tf.get_logger().setLevel("DEBUG")
 
-cap = cv2.VideoCapture('/dev/video0')
+cap = cv2.VideoCapture(config.get("real_video_device"))
 
 # configure camera for 720p @ 30 FPS
 height, width = 720, 1280
@@ -27,7 +57,7 @@ cap.set(cv2.CAP_PROP_FRAME_WIDTH ,width)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT,height)
 cap.set(cv2.CAP_PROP_FPS, 30)
 
-fakewebcam = pyfakewebcam.FakeWebcam("/dev/video2", width, height)
+fakewebcam = pyfakewebcam.FakeWebcam(config.get("virtual_video_device"), width, height)
 
 # CONSTANTS
 OutputStride = 16
@@ -42,17 +72,6 @@ modelPath = 'bodypix_mobilenet_float_{0:03d}_model-stride{1}'.format(
 print("Loading model...")
 graph = tfjs.api.load_graph_model(modelPath)  # downloaded from the link above
 print("done.")
-
-replacement_bg = None
-replacement_bg_mtime = 0
-config_mtime = 0
-config = {
-    "erode": 0,
-    "blur": 0,
-    "segmentation_threshold": 0.75,
-    "blur_background": 0,
-    "image_name": "background.jpg"
-}
 
 def load_replacement_bg(replacement_bg, image_name="background.jpg", blur_background_value=0):
     global replacement_bg_mtime
@@ -69,21 +88,6 @@ def load_replacement_bg(replacement_bg, image_name="background.jpg", blur_backgr
         return replacement_bg
     except OSError:
         return None
-
-def load_config():
-    global config_mtime, config, replacement_bg_mtime
-    try:
-        if os.stat("config.yaml").st_mtime != config_mtime:
-            config_mtime = os.stat("config.yaml").st_mtime
-            with open("config.yaml", "r") as configfile:
-                yconfig = yaml.load(configfile, Loader=yaml.SafeLoader)
-                for key in yconfig:
-                    config[key] = yconfig[key]
-            # Force image reload
-            replacement_bg_mtime = 0
-    except OSError:
-        pass
-    return config
 
 sess = tf.compat.v1.Session(graph=graph)
 input_tensor_names = tfjs.util.get_input_tensors(graph)

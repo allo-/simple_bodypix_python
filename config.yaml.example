@@ -1,5 +1,9 @@
-segmentation_threshold: 0.7
-blur: 5
-erode: 30
+segmentation_threshold: 0.75
+blur: 15
+erode: 50
+dilate: 45
 blur_background: 0
 image_name: "background.jpg"
+debug_show_mask: false
+virtual_video_device: "/dev/video2"
+real_video_device: "/dev/video0"
