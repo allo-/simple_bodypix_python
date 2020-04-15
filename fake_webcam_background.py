@@ -92,7 +92,11 @@ def load_replacement_bgs(replacement_bgs, image_name="background.jpg", blur_back
             replacement_bgs = []
             for filename in filenames:
                 replacement_bg_raw = cv2.imread(filename)
-                replacement_bg = cv2.resize(replacement_bg_raw, (width, height))
+                interpolation_method = cv2.INTER_LINEAR
+                if config.get("background_interpolation_method") == "NEAREST":
+                    interpolation_method = cv2.INTER_NEAREST
+                replacement_bg = cv2.resize(replacement_bg_raw, (width, height),
+                    interpolation=interpolation_method)
                 replacement_bg = replacement_bg[...,::-1]
                 replacement_bgs.append(replacement_bg)
 
@@ -133,7 +137,7 @@ def calc_padding(inputTensor, targetH, targetW):
 
 def removePaddingAndResizeBack(resizedAndPadded, originalHeight, originalWidth,
         padT, padB, padL, padR):
-    return tf.squeeze(tf.image.crop_and_resize(resizedAndPadded, 
+    return tf.squeeze(tf.image.crop_and_resize(resizedAndPadded,
         [[padT / (originalHeight + padT + padB - 1.0),
         padL / (originalWidth + padL + padR - 1.0),
         (padT + originalHeight - 1.0) / (originalHeight + padT + padB - 1.0),
