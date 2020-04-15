@@ -170,6 +170,8 @@ while True:
 
     if config["erode"]:
         mask_img = cv2.erode(mask_img, np.ones((config["erode"], config["erode"]), np.uint8), iterations=1)
+    if config["dilate"]:
+        mask_img = cv2.dilate(mask_img, np.ones((config["erode"], config["erode"]), np.uint8), iterations=1)
     if config["blur"]:
         mask_img = cv2.blur(mask_img, (config["blur"], config["blur"]))
     segmentationMask_inv = np.bitwise_not(mask_img)
