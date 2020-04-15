@@ -71,7 +71,7 @@ def load_replacement_bg(replacement_bg, image_name="background.jpg", blur_backgr
         return None
 
 def load_config():
-    global config_mtime, config
+    global config_mtime, config, replacement_bg_mtime
     try:
         if os.stat("config.yaml").st_mtime != config_mtime:
             config_mtime = os.stat("config.yaml").st_mtime
