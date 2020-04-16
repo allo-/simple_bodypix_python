@@ -16,6 +16,8 @@ replacement_bgs_idx = 0
 replacement_bgs_mtime = 0
 config_mtime = 0
 config = {
+    "width": None,
+    "height": None,
     "erode": 0,
     "blur": 0,
     "segmentation_threshold": 0.75,
@@ -27,8 +29,9 @@ config = {
 }
 masks = []
 
-def load_config():
-    global config_mtime, config, replacement_bgs_mtime
+def load_config(oldconfig):
+    global config_mtime, replacement_bgs_mtime
+    config = oldconfig
     try:
         if os.stat("config.yaml").st_mtime != config_mtime:
             config_mtime = os.stat("config.yaml").st_mtime
@@ -42,7 +45,7 @@ def load_config():
         pass
     return config
 
-load_config()
+config = load_config(config)
 
 gpu_devices = tf.config.experimental.list_physical_devices('GPU')
 for device in gpu_devices:
@@ -55,12 +58,18 @@ tf.get_logger().setLevel("DEBUG")
 cap = cv2.VideoCapture(config.get("real_video_device"))
 
 # configure camera for 720p @ 30 FPS
-height, width = 720, 1280
-cap.set(cv2.CAP_PROP_FRAME_WIDTH ,width)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT,height)
+#height, width = 720, 1280
+if config.get("width"):
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.get("width"))
+if config.get("height"):
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.get("height"))
 cap.set(cv2.CAP_PROP_FPS, 30)
 
-fakewebcam = pyfakewebcam.FakeWebcam(config.get("virtual_video_device"), width, height)
+width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+fakewebcam = pyfakewebcam.FakeWebcam(config.get("virtual_video_device"),
+    width, height)
 
 # CONSTANTS
 OutputStride = 16
@@ -76,7 +85,8 @@ print("Loading model...")
 graph = tfjs.api.load_graph_model(modelPath)  # downloaded from the link above
 print("done.")
 
-def load_replacement_bgs(replacement_bgs, image_name="background.jpg", blur_background_value=0):
+def load_replacement_bgs(replacement_bgs, image_name,
+        height, width, blur_background_value=0):
     global replacement_bgs_mtime, replacement_bgs_idx
     try:
         replacement_stat = os.stat(image_name)
@@ -173,7 +183,7 @@ def toMaskTensor(segmentScores, threshold):
     return tf.math.greater(scaledSegmentScores, tf.constant(threshold))
 
 while True:
-    config = load_config()
+    config = load_config(config)
     success, frame = cap.read()
     if not success:
         print("Error getting a webcam image!")
@@ -186,7 +196,8 @@ while True:
 
     blur_background_value = config.get("blur_background", 0)
     image_name = config.get("image_name", "background.jpg")
-    replacement_bgs = load_replacement_bgs(replacement_bgs, image_name, blur_background_value)
+    replacement_bgs = load_replacement_bgs(replacement_bgs, image_name,
+        height, width, blur_background_value)
 
     frame = frame[...,::-1]
     if replacement_bgs is None:
