@@ -206,8 +206,8 @@ while True:
             continue
         elif blur_background_value:
             replacement_bgs = frame
-            replacement_bgs = cv2.blur(replacement_bgs,
-                (blur_background_value, blur_background_value))
+            replacement_bgs = [cv2.blur(replacement_bgs,
+                (blur_background_value, blur_background_value))]
 
     img = Image.fromarray(frame)
     imgWidth, imgHeight = img.size
