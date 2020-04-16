@@ -173,12 +173,17 @@ def toMaskTensor(segmentScores, threshold):
     return tf.math.greater(scaledSegmentScores, tf.constant(threshold))
 
 while True:
+    config = load_config()
     success, frame = cap.read()
     if not success:
         print("Error getting a webcam image!")
         sys.exit(1)
 
-    config = load_config()
+    if config.get("flip_horizontal"):
+        frame = cv2.flip(frame, 1)
+    if config.get("flip_vertical"):
+        frame = cv2.flip(frame, 0)
+
     blur_background_value = config.get("blur_background", 0)
     image_name = config.get("image_name", "background.jpg")
     replacement_bgs = load_replacement_bgs(replacement_bgs, image_name, blur_background_value)
