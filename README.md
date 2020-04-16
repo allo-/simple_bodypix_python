@@ -1,3 +1,12 @@
+# Archived
+
+**This project is archived.**
+
+When you are looking for `simple_bodypix_python`,
+use this repository: [ajaichemmanam/simple_bodypix_python](https://github.com/ajaichemmanam/simple_bodypix_python).
+
+The repository of the rewrite of the fake webcam script is here: [allo-/virtual_webcam_background](https://github.com/allo-/virtual_webcam_background).
+
 # simple_bodypix_python
 A simple and minimal bodypix inference in python
 
